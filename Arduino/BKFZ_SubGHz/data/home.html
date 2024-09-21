@@ -1,0 +1,50 @@
+<html>
+<head>
+	<title>BKFZ SubGHz</title>
+	<link rel='stylesheet' href='/assets/bootstrap.min.css'>
+	<link href="/assets/fonts.css" rel="stylesheet">
+	<link href="/assets/style.css" rel="stylesheet">
+	<script src="/assets/jquery-3.6.3.min.js"></script>
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+	<link rel="icon" type="image/png" href="/assets/favicon.png">
+	<link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon.png">
+	
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black">
+	<meta name="format-detection" content="telephone=no">
+	<meta name="msapplication-TileColor" content="#1c1c1c">
+	<meta name="theme-color" content="#1c1c1c">
+	<style> .btn { font-size: 12px; } </style>
+</head>
+<body>
+	<center>
+		<h2>BKFZ SubGHz</h2>
+		<p>Easily read SubGHz communication protocols.</p><br><br>
+		<button class="btn" id="read">Read</button><br>
+		<button class="btn" id="play">Play from File</button><br>
+		<button class="btn" id="analyzer">Frequency Analyzer</button><br>
+		<button class="btn" id="settings">Settings</button>
+	</center>
+
+	<script>
+		$(document).ready(function () {
+			$('#read').on('click', function() {
+				window.location.assign("/record");
+			});
+
+			$('#play').on('click', function() {
+				window.location.assign("/play");
+			});
+
+			$('#analyzer').on('click', function() {
+				window.location.assign("/analyzer");
+			});
+
+			$('#settings').on('click', function() {
+				window.location.assign("/settings");
+			});
+		});
+	</script>
+</body>
+</html>

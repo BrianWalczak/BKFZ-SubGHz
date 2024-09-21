@@ -1,0 +1,104 @@
+<html>
+<head>
+	<title>BKFZ SubGHz</title>
+	<link rel='stylesheet' href='/assets/bootstrap.min.css'>
+	<link href="/assets/fonts.css" rel="stylesheet">
+	<link href="/assets/style.css" rel="stylesheet">
+	<script src="/assets/jquery-3.6.3.min.js"></script>
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+	<link rel="icon" type="image/png" href="/assets/favicon.png">
+	<link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon.png">
+	
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black">
+	<meta name="format-detection" content="telephone=no">
+	<meta name="msapplication-TileColor" content="#1c1c1c">
+	<meta name="theme-color" content="#1c1c1c">
+	<style>
+	.before .btn.start {
+		background: #28a745 !important;
+	}
+
+	.before .btn.stop {
+		background: #dc3545 !important;
+	}
+	</style>
+</head>
+<body>
+    <input type="file" id="directory" style="display: none;" directory webkitdirectory>
+	<center>
+		<h2>SubGHz Capture</h2>
+		<p>Capture and store SubGHz signal data.</p>
+		
+        <div class="before"><br>
+            <button id="trigger" class="btn start">Record</button><br>
+            <b class="status"></b>
+        </div><br>
+
+		<div style="display: none;" class="after">
+			<button id="download" class="btn">Download</button><br>
+			<b class="status">Your recording has been successfully created.</b>
+		</div>
+	</center>
+    <script>
+		$(document).ready(function () {
+			window.recording = null;
+			
+			async function triggerButton() {				
+				if (!$("#trigger").hasClass("stop")) {
+					try {
+						const req = await fetch('/api/record/start');
+						
+						if (req.status === 200) {
+							$("#trigger").removeClass("start").addClass("stop").text("Stop");
+						} else {
+							alert("Your recording could not be started because of a critical error!");
+							window.location.reload();
+						}
+					} catch (error) {
+						alert("An error occurred while starting the recording. Please restart your device.");
+						window.location.reload();
+					}
+				} else {
+					try {
+						const req = await fetch('/api/record/stop');
+						
+						if (req.status === 200) {
+							const res = await req.text();
+							
+							$(".before").hide();
+							$(".after").show();
+							window.recording = res;
+						} else {
+							alert("Your recording could not be compiled because of a critical error!");
+							window.location.reload();
+						}
+					} catch (error) {
+						alert("An error occurred while stopping the recording. Please restart your device.");
+						window.location.reload();
+					}
+				}
+			}
+			
+			$("#trigger").click(triggerButton);
+			
+			$("#download").click(function() {
+				const blob = new Blob([window.recording], { type: "text/plain" });
+				const url = URL.createObjectURL(blob);
+				
+				const $a = $("<a>")
+					.attr("href", url)
+					.attr("download", Date.now() + ".sub")
+					.appendTo("body");
+				
+				$a[0].click();
+				$a.remove();
+				URL.revokeObjectURL(url);
+			});
+			
+			$(".before .status").text(`${window.settings.preset} | ${(window.settings.frequency / 1000000).toFixed(2)} MHz | ${window.settings.rssi} RSSI`); // window.settings is injected server-side
+		});
+    </script>
+</body>
+</html>

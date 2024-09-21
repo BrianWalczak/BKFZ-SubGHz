@@ -1,0 +1,210 @@
+<html>
+<head>
+	<title>BKFZ SubGHz</title>
+	<link rel='stylesheet' href='/assets/bootstrap.min.css'>
+	<link href="/assets/fonts.css" rel="stylesheet">
+	<link href="/assets/style.css" rel="stylesheet">
+	<script src="/assets/jquery-3.6.3.min.js"></script>
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+	<link rel="icon" type="image/png" href="/assets/favicon.png">
+	<link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon.png">
+
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black">
+	<meta name="format-detection" content="telephone=no">
+	<meta name="msapplication-TileColor" content="#1c1c1c">
+	<meta name="theme-color" content="#1c1c1c">
+	<style>
+	.options {
+		height: auto;
+		padding: 20px;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		margin: 0;
+	}
+
+	.option {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: flex-end;
+		margin: 10px 0;
+		width: 100%;
+	}
+
+	.options .option .left, .right {
+		color: white;
+		cursor: pointer;
+		display: flex;
+		margin: 0px 3px;
+	}
+
+	.options .option .selected {
+		padding: 5px 10px;
+		background: #2b2b2b;
+		border-radius: 10px;
+		width: 110px;
+		color: white;
+		border: none;
+		font-weight: 700;
+		outline: none;
+		text-align: center;
+		flex-shrink: 0;
+	}
+
+	.options .option .label {
+		justify-content: flex-start;
+		margin-right: 5px;
+		text-align: left;
+		flex-grow: 1;
+	}
+
+	.btn.save {
+		background: #28a745 !important;
+	}
+
+	.option input {
+		display: none;
+	}
+
+	.options .option .left.disabled, .options .option .right.disabled {
+		color: grey;
+	}
+	</style>
+</head>
+<body>
+	<div class="alert" role="alert" style="display: none; margin-top: -30px;"></div>
+	<center>
+		<h2>Configuration / Settings</h2>
+		<p>Manage SubGHz settings and modulation.</p><br>
+
+		<form class="options" action="/api/settings" method="POST">
+			<div class="option" id="preset">
+				<span class="label">Preset</span>
+				<span class="material-symbols-outlined noselect left">chevron_left</span>
+				<div class="selected noselect"></div>
+				<span class="material-symbols-outlined noselect right">chevron_right</span>
+
+				<input name="preset" type="text" value="" readonly></input>
+			</div>
+
+			<div class="option" id="frequency">
+				<span class="label">Frequency</span>
+				<span class="material-symbols-outlined noselect left">chevron_left</span>
+				<div class="selected noselect"></div>
+				<span class="material-symbols-outlined noselect right">chevron_right</span>
+
+				<input name="frequency" type="number" value="" readonly></input>
+			</div>
+
+			<div class="option" id="rssi">
+				<span class="label">RSSI Threshold</span>
+				<span class="material-symbols-outlined noselect left">chevron_left</span>
+				<div class="selected noselect"></div>
+				<span class="material-symbols-outlined noselect right">chevron_right</span>
+
+				<input name="rssi" type="number" value="" readonly></input>
+			</div>
+
+			<button class="btn save" type="submit">Save Settings</button>
+		</form>
+	</center>
+	<script>
+		$(document).ready(function() {
+			var position = getStartPosition(); // Contains the current array(s) positon
+
+			// Get the current setting index in the options array(s)
+			function getStartPosition() {
+				const presetIndex = $.inArray(window.settings.preset, window.settings.options.preset);
+				const frequencyIndex = $.inArray(window.settings.frequency, window.settings.options.frequency);
+				const rssiIndex = $.inArray(window.settings.rssi, window.settings.options.rssi);
+
+				return {
+					preset: presetIndex,
+					frequency: frequencyIndex,
+					rssi: rssiIndex
+				};
+			}
+
+			// Moves the index position on arrow click
+			function movePosition(item, type) {
+				if ($(item).hasClass("disabled")) return;
+
+				const name = $(item).parent().attr('id');
+				const itemIndex = window.settings.options[name];
+				const movement = type === 'left' ? -1 : 1;
+				const newPosition = itemIndex[position[name] + movement];
+
+				if (newPosition !== undefined) {
+					position[name] += movement;
+
+					updateSettings();
+				}
+			}
+
+			// Disables arrow if they reached the start end of the index
+			function updateNavigationButtons() {
+				$('.left, .right').removeClass('disabled');
+				if (position.preset === 0) $('#preset .left').addClass('disabled');
+				if (position.preset === window.settings.options.preset.length - 1) $('#preset .right').addClass('disabled');
+
+				if (position.frequency === 0) $('#frequency .left').addClass('disabled');
+				if (position.frequency === window.settings.options.frequency.length - 1) $('#frequency .right').addClass('disabled');
+
+				if (position.rssi === 0) $('#rssi .left').addClass('disabled');
+				if (position.rssi === window.settings.options.rssi.length - 1) $('#rssi .right').addClass('disabled');
+			}
+
+			// Update settings values on page (including form data)
+			function updateSettings() {
+				const presetVal = window.settings.options.preset[position.preset];
+				const frequencyVal = window.settings.options.frequency[position.frequency];
+				const rssiVal = window.settings.options.rssi[position.rssi];
+
+				$('#preset .selected').text(presetVal);
+				$('#frequency .selected').text((frequencyVal / 1000000).toFixed(2) + ' MHz');
+				$('#rssi .selected').text(rssiVal + ' dBm');
+
+				$('#preset input').val(presetVal);
+				$('#frequency input').val(frequencyVal);
+				$('#rssi input').val(rssiVal);
+
+				updateNavigationButtons();
+			}
+
+			// Attach click handlers for each arrow button
+			$('.left').on('click', function () {
+				movePosition(this, 'left');
+			});
+
+			$('.right').on('click', function () {
+				movePosition(this, 'right');
+			});
+
+			updateSettings();
+
+
+      const url = new URL(window.location.href);
+			const success = url.searchParams.get('success');
+
+            if(success) {
+                if(success === "true") {
+                    $('.alert').addClass('alert-success').text('Your settings have been successfully updated.');
+                } else if(success === "false") {
+                    $('.alert').addClass('alert-danger').text('An error occurred when updating your settings.');
+                }
+                
+                $('.alert').show();
+                url.searchParams.delete('success');
+                history.replaceState(null, '', url.toString());
+
+                setTimeout(function() {
+                  $('.alert').hide();
+                }, 3000);
+            }
+		});
+	</script>
+</body>
+</html>

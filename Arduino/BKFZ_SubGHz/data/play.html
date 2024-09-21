@@ -1,0 +1,210 @@
+<html>
+<head>
+	<title>BKFZ SubGHz</title>
+	<link rel='stylesheet' href='/assets/bootstrap.min.css'>
+	<link href="/assets/fonts.css" rel="stylesheet">
+	<link href="/assets/style.css" rel="stylesheet">
+	<script src="/assets/jquery-3.6.3.min.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <link rel="icon" type="image/png" href="/assets/favicon.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon.png">
+    
+    <meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black">
+	<meta name="format-detection" content="telephone=no">
+    <meta name="msapplication-TileColor" content="#1c1c1c">
+	<meta name="theme-color" content="#1c1c1c">
+	<style>
+    .items .item {
+        padding: 20px;
+        margin: 15px 0px;
+        border-radius: 20px;
+        background: #2b2b2b;
+    }
+
+    .items .item .title {
+        white-space: normal;
+        font-size: 24px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        word-wrap: break-word;
+        line-height: 1em;
+    }
+
+    .items .item .btn {
+        background: #28a745 !important;
+        margin-top: 20px;
+    }
+
+    .items .item .type, .before .status {
+        color: lightgrey;
+    }
+	</style>
+</head>
+<body>
+    <div class="alert" role="alert" style="display: none; margin-top: -30px;"></div>
+    <input type="file" id="directory" style="display: none;" multiple>
+	<center>
+		<h2>SubGHz Transmit</h2>
+		<p>Transmit saved SubGHz singals with presets.</p>
+		
+        <div class="before"><br>
+            <button id="openDirectory" class="btn">Open Directory</button><br>
+            <b class="status">No files have been selected.</b>
+        </div><br>
+
+        <div class="items"></div>
+	</center>
+    <script>
+        $(document).ready(function () {
+            window.files = {};
+            
+            function readFileContent(file) {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    
+                    reader.onload = (event) => {
+                        resolve(event.target.result);
+                    };
+                    
+                    reader.onerror = reject;
+                    reader.readAsText(file);
+                });
+            }
+            
+            $('#directory').on('change', async function (event) {
+                const files = event.target.files;
+                window.files = {};
+                
+                for (const file of files) {
+                    const fileExtension = file.name.toUpperCase().split('.').slice(1).join('.');
+                    let isFlipper = true;
+                    
+                    // .sub is a native file for the Flipper Zero, but is also used here
+                    if (fileExtension === 'SUB' || fileExtension === 'SUB.TXT') {
+                        let fileText = await readFileContent(file);
+                        
+                        $('.before').hide();
+                        const lines = fileText.split("\n");
+                        for (let i = 0; i < lines.length; i++) {
+                            if (lines[i].includes("# Created with BKFZ SubGHz")) {
+                                isFlipper = false;
+                                break;
+                            }
+                        }
+
+                        window.files[file.name] = fileText;
+                        
+                        $('.items').append(`
+                        <div class="item" name="${file.name}">
+                            <b class="title">${file.name.split(".")[0]}</b><br>
+                            <b class="type">${isFlipper ? 'Flipper' : 'Native'} SubGhz RAW File</b><br>
+                            <button class="btn" onclick="play(this.parentElement)">Play</button>
+                        </div>
+                        `);
+                    }
+                }
+            });
+            
+            // Converts files into a readable sample format
+            function convertFile(data) {
+                const samplesArray = [];
+                let frequency = 0;
+                let preset = "";
+                const lines = data.split("\n");
+                
+                for (let i = 0; i < lines.length; i++) {
+                    if (lines[i].includes("Frequency:")) {
+                        frequency = Number(lines[i].split('Frequency: ')[1]);
+                    }
+                    
+                    if (lines[i].includes("Preset:")) {
+                        preset = lines[i].split("Preset: ")[1];
+
+                        preset = preset.replaceAll('FuriHalSubGhzPresetOok270Async', 'AM270');
+                        preset = preset.replaceAll('FuriHalSubGhzPresetOok650Async', 'AM650');
+                        preset = preset.replaceAll('FuriHalSubGhzPreset2FSKDev238Async', 'FM238');
+                        preset = preset.replaceAll('FuriHalSubGhzPreset2FSKDev238Async', 'FM476');
+                    }
+                    
+                    if (lines[i].includes("RAW_Data:")) {
+                        const dataString = lines[i].replace("RAW_Data: ", "").trim();
+                        const samples = dataString.split(" ");
+                        for (let s = 0; s < samples.length; s++) {
+                            samplesArray.push(parseInt(samples[s]));
+                        }
+                    }
+                }
+                
+                return {
+                    samples: samplesArray,
+                    frequency: frequency,
+                    preset: preset
+                };
+            }
+            
+            window.play = async function(fileElement) {
+                const fileText = window.files[$(fileElement).attr("name")];
+                const data = convertFile(fileText);
+                
+                const form = $('<form></form>', {
+                    method: 'POST',
+                    action: '/api/play'
+                });
+                
+                $('<input>', {
+                    type: 'hidden',
+                    name: 'samples',
+                    value: JSON.stringify(data.samples)
+                }).appendTo(form);
+                
+                $('<input>', {
+                    type: 'hidden',
+                    name: 'frequency',
+                    value: data.frequency
+                }).appendTo(form);
+                
+                $('<input>', {
+                    type: 'hidden',
+                    name: 'length',
+                    value: data.samples.length
+                }).appendTo(form);
+                
+                $('<input>', {
+                    type: 'hidden',
+                    name: 'preset',
+                    value: data.preset
+                }).appendTo(form);
+                
+                $('body').append(form);
+                form.submit();
+            };
+
+            $("#openDirectory").click(function () {
+                $("#directory").click();
+            });
+            
+
+            const url = new URL(window.location.href);
+			const success = url.searchParams.get('success');
+
+            if(success) {
+                if(success === "true") {
+                    $('.alert').addClass('alert-success').text('Your signal has been transmitted successfully.');
+                } else if(success === "false") {
+                    $('.alert').addClass('alert-danger').text('Your signal could not be transmitted (invalid file).');
+                }
+                
+                $('.alert').show();
+                url.searchParams.delete('success');
+                history.replaceState(null, '', url.toString());
+                
+                setTimeout(function() {
+                  $('.alert').hide();
+                }, 3000);
+            }
+        });
+    </script>
+</body>
+</html>

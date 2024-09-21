@@ -1,0 +1,83 @@
+html, body {
+  background-color: #1c1c1c;
+  font-family: "Open Sans", system-ui;
+  font-weight: 500;
+  color: white;
+  padding: 30px 20px;
+}
+
+.btn {
+  font-weight: 600 !important;
+  background: #0632d1;
+  color: #fff;
+  border-radius: 8px;
+  margin-bottom: 11px;
+  cursor: pointer;
+  font-size: 12.5px;
+  white-space: nowrap;
+  text-decoration: none;
+  font-family: 'Press Start 2P', sans-serif;
+  padding: 20px 10px;
+  width: 250px;
+  border: none;
+  margin: 10px auto;
+}
+
+button:hover {
+  filter: brightness(0.9);
+}
+
+h2, p {
+  margin-top: 30px;
+  font-weight: 700 !important;
+  padding: 0px !important;
+  margin: 0px !important;
+}
+
+.status {
+  color: lightgrey;
+}
+
+/* courtesy of Stack Overflow :) */
+.noselect {
+  -webkit-touch-callout: none; /* iOS Safari */
+  -webkit-user-select: none; /* Safari */
+  -khtml-user-select: none; /* Konqueror HTML */
+  -moz-user-select: none; /* Old versions of Firefox */
+  -ms-user-select: none; /* Internet Explorer/Edge */
+  user-select: none; /* Non-prefixed version, currently supported by Chrome, Edge, Opera and Firefox */
+}
+
+/* courtesy of W3Schools :) */
+.slider {
+  -webkit-appearance: none;
+  height: 8px;
+  border-radius: 5px;
+  background: #d3d3d3;
+  outline: none;
+  opacity: 0.9;
+  -webkit-transition: .2s;
+  transition: opacity .2s;
+}
+
+.slider:hover {
+  opacity: 1;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #28a745;
+  cursor: pointer;
+}
+
+.slider::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #28a745;
+  cursor: pointer;
+}

@@ -1,0 +1,133 @@
+<html>
+<head>
+	<title>BKFZ SubGHz</title>
+	<link rel='stylesheet' href='/assets/bootstrap.min.css'>
+	<link href="/assets/fonts.css" rel="stylesheet">
+	<link href="/assets/style.css" rel="stylesheet">
+	<script src="/assets/jquery-3.6.3.min.js"></script>
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+	<link rel="icon" type="image/png" href="/assets/favicon.png">
+	<link rel="apple-touch-icon" sizes="180x180" href="/assets/favicon.png">
+	
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black">
+	<meta name="format-detection" content="telephone=no">
+	<meta name="msapplication-TileColor" content="#1c1c1c">
+	<meta name="theme-color" content="#1c1c1c">
+	<style>
+	.frequency {
+		color: #28a745;
+	}
+
+	.main {
+		padding: 20px;
+		border-radius: 20px;
+		background: #2b2b2b;
+	}
+
+	#history {
+		width: 100%;
+		height: 20%;
+		margin-top: 30px;
+		border: none;
+		background: #2b2b2b;
+		resize: none;
+		outline: none;
+		color: white;
+		font-weight: 700;
+		padding: 10px 20px;
+	}
+	
+	#history::-webkit-scrollbar {
+		width: 10px;
+		border: none;
+	}
+	
+	#history::-webkit-scrollbar-track {
+		background: #f1f1f1; 
+	}
+	
+	#history::-webkit-scrollbar-thumb {
+		background: #888; 
+	}
+	
+	#history::-webkit-scrollbar-thumb:hover {
+		background: #555; 
+	}
+	</style>
+</head>
+<body>
+	<center>
+		<h2>Frequency Analyzer</h2>
+		<p>Analyze nearby SubGHz frequencies w/ RSSI.</p>
+		<b class="status"></b><br><br>
+        
+		<div class="main" changed="false">
+			<h2 class="frequency">000.00 MHz</h2>
+       		<b class="status">-0.00 dBm (RSSI)</b>
+		</div>
+
+		<div style="margin-top: 10px;">
+			<b class="status settings">Settings: AM650 | -40 RSSI Threshold</b><br>
+			<label style="margin-right: 5px;" class="form-label">RSSI Threshold</label>
+			<input type="range" min="-85" max="-40" value="" step="5" class="slider" id="rssi">
+		</div>
+
+		<textarea id="history" disabled style="color: grey;">No frequency history.</textarea>
+	</center>
+    <script>
+		$(document).ready(function () {
+			var websocket = new WebSocket(`ws://${window.location.host}/ws`);
+			
+			websocket.onmessage = function(event) {
+				try {
+					var data = JSON.parse(event.data);
+					
+					if (data.type === "detect") {
+						var freq = data.data.freq;
+						var rssi = data.data.rssi;
+						
+						if(Number(rssi) < Number(window.settings.detect_rssi)) return; // Updating settings may take a few seconds because of the WebSocket latency, therefore let's double-check for RSSI here.
+						
+						$('.main .frequency').text((freq / 1000000).toFixed(2) + ' MHz');
+						$('.main .status').text(rssi + ' dBm (RSSI)');
+												
+						if ($("#history").css("color") === "rgb(128, 128, 128)") { // No history yet, remove placeholder
+							$("#history").css("color", "white");
+							$("#history").val("");
+						}
+						
+						$("#history").val(`Frequency : ${(freq / 1000000).toFixed(2) + ' MHz'} | RSSI: ${rssi} dBm\n` + $("#history").val());
+					}
+				} catch (error) {
+					console.error(error);
+					alert("A critical error has occurred when receiving frequency data. Please check the console for more details.");
+				}
+			};
+			
+			websocket.onerror = function(error) {
+				alert("An error occurred when receiving data from the WebSocket. Please check your connection and try again.");
+			};
+			
+			$("#rssi").on('change', function() {
+				websocket.send(JSON.stringify({ type: 'detect', data: { rssi: Number($(this).val()) } }));
+				
+				window.settings.detect_rssi = Number($(this).val());
+				updateSettings();
+			});
+			
+			$(window).on('beforeunload', function() {
+				websocket.close(); // close the websocket once done :)
+			});
+			
+			function updateSettings() {
+				$(".status.settings").text(`Settings: ${window.settings.preset} | ${window.settings.detect_rssi} RSSI Threshold`); // window.settings is injected server-side
+				$("#rssi").val(window.settings.detect_rssi);
+			}
+			
+			updateSettings();
+		});
+    </script>
+</body>
+</html>
