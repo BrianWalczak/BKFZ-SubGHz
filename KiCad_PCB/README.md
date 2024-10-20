@@ -4,6 +4,8 @@ A custom-designed printed circuit board designed for connecting a [Wemos D1 Mini
 This PCB was designed in KiCad (you can import it with `File > Open Project` and exported as a ready-to-print Gerber file. I printed this PCB for about **$3.50** (quanity of 5) on [JLCPCB](https://jlcpcb.com/) (not sponsored).
 
 ### Assembly
+> **If you'd like to see detailed photos of each step in the assembly process, you can check them out [here](https://github.com/BrianWalczak/BKFZ-SubGHz/tree/main/Other/Assembly%20Photos).**
+
 To assemble the BKFZ SubGHz device, I began by soldering female headers onto the PCB. This allows for easy attachment and removal of the ESP32 and CC1101 (if any changes are necessary). I started by soldering female headers on the underside of the PCB, and then soldered male headers to the ESP32, pointing upward, as shown below:
 
 <img src="https://github.com/user-attachments/assets/cc2036b7-1e73-4152-8374-12dc13e242a6" alt="ESP32 - Soldered Male Headers" width="300"/>
