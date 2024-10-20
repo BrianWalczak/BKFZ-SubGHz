@@ -12,7 +12,7 @@ Since this PCB design has not yet been tested, I would not recommended having it
 This project utilized the Wemos D1 Mini symbol and footprint by [@r0oland](https://github.com/r0oland/ESP32_mini_KiCad_Library), as well as the TP4056 battery module footprint by [@ccadic](https://github.com/ccadic/TP4056-18650). The CC1101 symbol and footprint was designed by me, as I was unable to find it online anywhere.
 
 #### Schematic
-<img src="" alt="Schematic" width="600"/>
+<img src="https://github.com/user-attachments/assets/2ef62ee9-d988-4840-83af-1605c1f3d801" alt="Schematic" width="600"/>
 
 #### PCB Design
-<img src="" alt="PCB Design" width="200"/>
+<img src="https://github.com/user-attachments/assets/6347270d-f7c1-4772-a043-a6090f3d70bd" alt="PCB Design" width="200"/>
