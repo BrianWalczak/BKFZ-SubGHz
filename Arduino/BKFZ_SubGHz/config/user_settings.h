@@ -34,12 +34,24 @@ struct SettingsOptions {
   int rssi[10];
 };
 
+// Used to display the status of the device (detecting, running, etc.)
+struct Status {
+    String detect;
+    String record;
+};
+
 // Settings which contains default presets (can be updated through the website)
 static Settings settings = {
   "AM650", // Preset
   433920000, // Frequency
   -65, // Overall RSSI threshold
   -40 // RSSI threshold for Frequency Analyzer ONLY (added for ease-of-use, made it low to prevent noise)
+};
+
+// Array which contains the current status of the device
+static Status status = {
+  "IDLE", // Detect (frequency analyzer)
+  "IDLE" // Recording (record)
 };
 
 // The available options for each setting (used to display on UI)
@@ -75,7 +87,7 @@ static SettingsOptions settingsOptions = {
 
 // Converts the user settings as a readable JSON string (courtesy of ChatGPT)
 String settingsToJson() {
-  DynamicJsonDocument doc(1024);
+  DynamicJsonDocument doc(256);
 
   doc["preset"] = settings.preset;
   doc["frequency"] = settings.frequency;
@@ -87,10 +99,9 @@ String settingsToJson() {
   return jsonString;
 }
 
-
 // Converts the settings options as a readable JSON string (courtesy of ChatGPT, mainly used for displaying in /settings)
 String settingsOptionsToJson() {
-  DynamicJsonDocument doc(1024);
+  DynamicJsonDocument doc(256);
 
   JsonArray presets = doc.createNestedArray("preset");
   for (String preset : settingsOptions.preset) {
@@ -106,6 +117,18 @@ String settingsOptionsToJson() {
   for (int threshold : settingsOptions.rssi) {
     rssiThreshold.add(threshold);
   }
+
+  String jsonString;
+  serializeJson(doc, jsonString);
+  return jsonString;
+}
+
+// Converts the status as a readable value (courtesy of ChatGPT)
+String statusToJson() {
+  DynamicJsonDocument doc(128);
+
+  doc["detect"] = status.detect;
+  doc["record"] = status.record;
 
   String jsonString;
   serializeJson(doc, jsonString);

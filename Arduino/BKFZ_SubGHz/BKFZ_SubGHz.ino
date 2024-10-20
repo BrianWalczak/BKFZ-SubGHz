@@ -1,5 +1,3 @@
-// Copyright 2024 - © Brian Walczak (view the LICENSE for more information)
-
 #include <ELECHOUSE_CC1101_SRC_DRV.h>
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
@@ -21,52 +19,16 @@ int tempSmooth[MAX_SAMPLES];
 volatile int sampleIndex = 0;
 volatile unsigned long lastTime = 0;
 
-// -- Signal Detection Parameters -- //
-bool DETECT_RUNNING = false;
-bool DETECT_QUEUED = false;
+// -- Recording Graph Data -- //
+int itemsToGraph[1024];
+bool graphUpdateNeeded = false;
+volatile int graphSkipped = 0;
+volatile int graphIndex = -1;
+volatile int lastSend = 0;
 
 Preferences preferences;
 AsyncWebServer server(SERVER_PORT);
 AsyncWebSocket ws("/ws");
-
-// Event handler for web sockets (used for Frequency Analyzer as quick data transmission)
-void onWsEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
-  switch(type) {
-    case WS_EVT_CONNECT:
-      break;
-      
-    case WS_EVT_DISCONNECT:
-      if(DETECT_RUNNING == true) {
-        DETECT_RUNNING = false; // disable analyzer if enabled while disconnect
-        Serial.println("A websocket user has been disconnected from Frequency Analyzer.");
-      }
-      break;
-      
-    case WS_EVT_ERROR:
-      Serial.printf("WebSocket error: %s\n", (char*)arg);
-      break;
-      
-    case WS_EVT_DATA:
-      if (len > 0) {
-        DynamicJsonDocument doc(1024);
-        deserializeJson(doc, data, len);
-
-        if (doc["type"] == "detect") { // If the websocket request is from analyzer
-          JsonObject dataObject = doc["data"];
-          if (dataObject.containsKey("rssi")) {
-            // Update the Frequency Analyzer RSSI to the requested one
-            settings.detect_rssi = dataObject["rssi"].as<int>(); // make sure its int
-
-            Serial.println("Updated detect_rssi to " + String(settings.detect_rssi));
-          }
-        }
-      }
-      break;
-      
-    default:
-      break;
-  }
-}
 
 // Updates the settings for the CC1101 (utilizes user settings)
 void setupCC1101(bool transmit, int retry = false) {
@@ -87,244 +49,54 @@ void setupCC1101(bool transmit, int retry = false) {
   
   if(!ELECHOUSE_cc1101.getCC1101()) {
     if(!retry) {
-      Serial.println("Connection error with CC1101, retrying...");
+      Serial.println(F("Connection error with CC1101, retrying..."));
       setupCC1101(transmit, true);
     } else {
-      Serial.print("Failed CC1101 connection retry. Please check your pins.");
+      Serial.println(F("Failed CC1101 connection retry. Please check your pins."));
     }
   }
 }
 
 // Simple function to inject settings w/ options in window (used for web server)
 String injectSettings() {
-  String json = settingsToJson();
-  String jsonOptions = settingsOptionsToJson();
-  String script = "<script>window.settings = " + json + "</script>";
-  String options = "<script>window.settings.options = " + jsonOptions + "</script>";
+  String setJSON = settingsToJson();
+  String setOptionsJSON = settingsOptionsToJson();
+  String statusJSON = statusToJson();
 
-  return script + options;
+  String setScript = "<script>window.settings = " + setJSON + "</script>";
+  String setOptionsScript = "<script>window.settings.options = " + setOptionsJSON + "</script>";
+  String statusScript = "<script>window.settings.status = " + statusJSON + "</script>";
+
+  return setScript + setOptionsScript + statusScript;
 }
 
 // Saves the current settings/configurations as non-volatile storage
 void saveSettings() {
-  preferences.begin("settings", false);
+  preferences.begin("settings", false); // Open Preferences storage w/ settings
 
+  // Update all values in stored settings to the current settings
   preferences.putString("preset", settings.preset);
   preferences.putInt("frequency", settings.frequency);
   preferences.putInt("rssi", settings.rssi);
   preferences.putInt("detect_rssi", settings.detect_rssi);
 
-  preferences.end();
-}
-
-void setup() {
-  Serial.begin(9600);
-  delay(500);
-  while (!Serial) { ; }
-
-  // -- Web Server Setup -- //
-  /* This is the regular configuration, however you can use the already-existing network for testing purposes */
-  WiFi.softAP(ssid, password);
-  IPAddress IP = WiFi.softAPIP();
-
-  preferences.begin("settings", false);
-  settings.preset = preferences.getString("preset", settings.preset);
-  settings.frequency = preferences.getInt("frequency", settings.frequency);
-  settings.rssi = preferences.getInt("rssi", settings.rssi);
-  settings.detect_rssi = preferences.getInt("detect_rssi", settings.detect_rssi);
-  preferences.end();
-
-  if (!SPIFFS.begin(true)) {
-    Serial.println("An error has occurred while mounting SPIFFS. Please check if SPIFFS is properly installed.");
-    return;
-  }
-
-  // -- All Pages -- //
-  server.serveStatic("/assets", SPIFFS, "/assets");
-
-  server.on("/", HTTP_GET, [] (AsyncWebServerRequest *request) {
-    File file = SPIFFS.open("/home.html", "r");
-    String content = file.readString();
-
-    file.close();
-    request->send(200, "text/html", content);
-  });
-
-  server.on("/record", HTTP_GET, [] (AsyncWebServerRequest *request) {
-    File file = SPIFFS.open("/record.html", "r");
-    String content = file.readString();
-
-    file.close();
-    request->send(200, "text/html", injectSettings() + content);
-  });
-
-  server.on("/play", HTTP_GET, [] (AsyncWebServerRequest *request) {
-    File file = SPIFFS.open("/play.html", "r");
-    String content = file.readString();
-
-    file.close();
-    request->send(200, "text/html", content);
-  });
-
-  server.on("/analyzer", HTTP_GET, [] (AsyncWebServerRequest *request) {
-    File file = SPIFFS.open("/frequency_analyzer.html", "r");
-    String content = file.readString();
-
-    file.close();
-    DETECT_QUEUED = true;
-    request->send(200, "text/html", injectSettings() + content);
-  });
-
-  server.on("/settings", HTTP_GET, [] (AsyncWebServerRequest *request) {
-    File file = SPIFFS.open("/settings.html", "r");
-    String content = file.readString();
-
-    file.close();
-    request->send(200, "text/html", injectSettings() + content);
-  });
-
-  // -- API Requests -- //
-
-  server.on("/api/record/start", HTTP_GET, [] (AsyncWebServerRequest *request) {
-    Serial.println("Recording has been successfully started for preset " + settings.preset + ", frequency " + String(settings.frequency / 1000000.0) + " MHz, w/ RSSI " + settings.rssi + ".");
-    startRecording();
-
-    request->send(200, "text/html", "OK");
-  });
-
-  server.on("/api/record/stop", HTTP_GET, [] (AsyncWebServerRequest *request) {
-    stopRecording();
-    Serial.println("Found " + String(sampleIndex) + " RAW samples, smoothing needed.");
-    delay(100);
-    smoothenSamples();
-    Serial.println("Recording has been successfully finished with a " + String(sampleIndex) + " sample index detected.");
-
-    // Handle signal data accordingly
-    String prepend = "";
-    String presetName = settings.preset;
-    int freq_format = settings.frequency;
-    presetName.replace("AM270", "FuriHalSubGhzPresetOok270Async");
-    presetName.replace("AM650", "FuriHalSubGhzPresetOok650Async");
-    presetName.replace("FM238", "FuriHalSubGhzPreset2FSKDev238Async");
-    presetName.replace("FM476", "FuriHalSubGhzPreset2FSKDev238Async");
-
-    String result = "Filetype: Flipper SubGhz RAW File\nVersion: 1\n# Created with BKFZ SubGHz\nFrequency: " + String(freq_format) + "\nPreset: " + presetName + "\nProtocol: RAW\nRAW_Data: ";
-
-    // remove first sample if it's a negative number
-    if (samples[0] < 0) {
-      // Shift all elements to the left by one
-      for (int i = 0; i < sampleIndex - 1; ++i) {
-        samples[i] = samples[i + 1];
-      }
-      sampleIndex--; // Decrease the total number of elements
-    }
-
-    // add each sample to file
-    for (int i = 0; i < sampleIndex; ++i) {
-        String valueToAdd = prepend + String(samples[i]);
-        result += valueToAdd;
-        prepend = " ";
-
-        // After every 512 samples, add a new line and reset prepend
-        if ((i + 1) % 512 == 0) {
-          result += "\nRAW_Data: ";  // Move to the next line after every 512 samples
-          prepend = "";    // Reset prepend for the new line
-        }
-    }
-
-    request->send(200, "text/html", result);
-  });
-  
-  server.on("/api/play", HTTP_POST, [](AsyncWebServerRequest *request) {
-    if (request->hasParam("samples", true) && request->hasParam("frequency", true) && request->hasParam("length", true) && request->hasParam("preset", true)) {
-      // Store old settings to revert when done
-      String old_preset = settings.preset;
-      int old_freq = settings.frequency;
-
-
-      String samplesParam = request->getParam("samples", true)->value();
-      String frequencyParam = request->getParam("frequency", true)->value();
-      String lengthParam = request->getParam("length", true)->value();
-      String presetParam = request->getParam("preset", true)->value();
-      int reqLength = lengthParam.toInt();
-      int reqSamples[reqLength];
-
-      // Reconstruct samples array from response
-      DynamicJsonDocument doc(1024);
-      deserializeJson(doc, samplesParam);
-      JsonArray array = doc.as<JsonArray>();
-
-      for (int i = 0; i < reqLength; i++) {
-          reqSamples[i] = array[i].as<int>();
-      }
-
-      // Update settings to new data (send samples already runs setupCC1101)
-      settings.preset = presetParam;
-      settings.frequency = frequencyParam.toInt();
-      Serial.println("Now playing file requested by user, successfully updated to file settings (preset " + presetParam + ", frequency " + String(frequencyParam.toInt() / 1000000.0) + " MHz).");
-
-      playSignal(reqSamples, reqLength);
-
-      Serial.println("Successfully played file requested, reverting back to old settings (preset " + old_preset + ", frequency " + String(old_freq / 1000000.0) + " MHz).");
-      // Revert settings back to original and run setupCC1101
-      settings.preset = old_preset;
-      settings.frequency = old_freq;
-      setupCC1101(true); // transmit param doesn't really matter since it'll be updated anyway
-      request->redirect("/play?success=true");
-    } else {
-      request->redirect("/play?success=false");
-    }
-  });
-
-  server.on("/api/settings", HTTP_POST, [](AsyncWebServerRequest *request) {
-    if (request->hasParam("preset", true) && request->hasParam("frequency", true) && request->hasParam("rssi", true)) {
-      String frequencyParam = request->getParam("frequency", true)->value();
-      String rssiParam = request->getParam("rssi", true)->value();
-      String preset = request->getParam("preset", true)->value();
-      int frequency = frequencyParam.toInt();
-      int rssi = rssiParam.toInt();
-
-      settings.preset = preset;
-      settings.frequency = frequency;
-      settings.rssi = rssi;
-      saveSettings(); // Save settings in non-volatile storage
-
-      setupCC1101(true); // transmit param doesn't really matter since it'll be updated anyway
-      request->redirect("/settings?success=true");
-    } else {
-      request->redirect("/settings?success=false");
-    }
-  });
-
-  ws.onEvent(onWsEvent);
-  server.addHandler(&ws);
-  server.begin();
-
-  setupCC1101(true);
-  Serial.print("The CC1101 is ready with an IP address of ");
-  Serial.println(IP);
-}
-
-void loop() {
-  if(DETECT_QUEUED && !DETECT_RUNNING) {
-    DETECT_QUEUED = false;
-    frequencyAnalyzer();
-  }
+  preferences.end(); // Close Preferences when finished.
 }
 
 // Enables receiver mode and records RAW samples
 void startRecording() {
   setupCC1101(false); // Initizalize CC1101 with receiver mode
+  status.record = "RUNNING";
   
   // Update all of the pins and setup interrupt
-  memset(samples, 0, sizeof(samples)); // Clear the sample array
-  sampleIndex = 0; // Clear the sample count
+  flushSamples();
   attachInterrupt(digitalPinToInterrupt(GDO2_CPIN), onSignalChange, CHANGE);
 }
 
 // Stops recording and checks if successful
 bool stopRecording(void) {
   detachInterrupt(digitalPinToInterrupt(GDO2_CPIN));
+  status.record = "IDLE";
 
   if (micros() - lastTime > 100000){
     return 1;
@@ -334,14 +106,16 @@ bool stopRecording(void) {
 }
 
 // Capture and analyze nearby frequencies w/ RSSI
+int lastFrequency = 0;
+int lastRSSI = 0;
 void frequencyAnalyzer() {
-  DETECT_RUNNING = true;
-  Serial.println("Frequency analyzer has been started by the user (watch for websockets).");
+  status.detect = "RUNNING";
+  Serial.println(F("Frequency analyzer has been started by the user (watch for websockets)."));
 
   // Store old settings to revert when done
   int old_freq = settings.frequency;
 
-  while(DETECT_RUNNING == true) {
+  while(status.detect == "RUNNING") {
     int highestRssi = -INFINITY;
     int strongestFreq = 0;
 
@@ -359,28 +133,31 @@ void frequencyAnalyzer() {
     }
 
     // If the strongest signal is within the RSSI threshold
-    if(highestRssi >= settings.detect_rssi) {
-      DynamicJsonDocument doc(1024);
-      doc["type"] = "detect";
+    if(highestRssi >= settings.detect_rssi && strongestFreq != lastFrequency && highestRssi != lastRSSI) {
+      DynamicJsonDocument doc(128);
+      doc["url"] = "/analyzer";
       doc["data"]["freq"] = String(strongestFreq);
       doc["data"]["rssi"] = String(highestRssi);
 
       String jsonString;
       serializeJson(doc, jsonString);
 
+      // Used to prevent repetition of the same signal
+      lastFrequency = strongestFreq;
+      lastRSSI = highestRssi;
       ws.textAll(jsonString);
+      jsonString.clear(); // clean up json string
     }
   }
 
   // Revert settings back to original and run setup
   settings.frequency = old_freq;
-  setupCC1101(true); // transmit param doesn't really matter since it'll be updated anyway
-  Serial.println("Frequency analyzer has been stopped by the user.");
+  Serial.println(F("Frequency analyzer has been stopped by the user."));
 }
 
 // Play a signal from client-side file
 void playSignal(int reqSamples[], int reqLength) {
-  Serial.println("Now transmitting " + String(reqLength) + " samples...");
+  Serial.println(F("Now transmitting requested samples..."));
   setupCC1101(true);
 
   // Transmit all of the sample data
@@ -511,13 +288,56 @@ void smoothenSamples() {
   }
 
   // Output smoothed data
-  memset(samples, 0, sizeof(samples)); // Clear the sample array
+  memset(samples, 0, sizeof(samples)); // Clear just the sample array
   sampleIndex = smoothCount; // Update sample index to smoothed count
   for (int i = 0; i < smoothCount; i++) {
     samples[i] = tempSmooth[i];
   }
 
-  return;
+  return;   
+}
+
+void flushSamples() {
+  int oldHeap = ESP.getFreeHeap();
+  int oldStack = uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t);
+
+  memset(samples, 0, sizeof(samples)); // flush sample array
+  memset(tempSmooth, 0, sizeof(tempSmooth)); // flush temporary smoothened array
+  sampleIndex = 0;
+  lastTime = 0;
+  
+  // reset graph variables
+  memset(itemsToGraph, 0, sizeof(itemsToGraph));
+  graphUpdateNeeded = false;
+  graphSkipped = 0;
+  graphIndex = -1;
+  lastSend = 0;
+
+  int newHeap = ESP.getFreeHeap();
+  int newStack = uxTaskGetStackHighWaterMark(NULL) * sizeof(StackType_t);
+  Serial.println("[FLUSH]: sample flush success, " + String(newHeap - oldHeap) + " heap regained + " + String(newStack - oldStack) + " stack regained.");
+}
+
+void checkGraph() {
+  if(micros() - lastSend > 100000 && graphIndex >= 1) { // the last time it was updated was >100ms ago
+    lastSend = micros();
+
+    DynamicJsonDocument doc(256);
+    doc["url"] = "/record";
+    JsonArray graphArray = doc["data"]["graph"].to<JsonArray>();
+    for (int i = 0; i < graphIndex; ++i) {
+      graphArray.add(itemsToGraph[i]);
+    }
+    doc["data"]["length"] = sampleIndex;
+    
+    String jsonString;
+    serializeJson(doc, jsonString);
+    ws.textAll(jsonString);
+
+    jsonString.clear(); // clean up json string
+    memset(itemsToGraph, 0, sizeof(itemsToGraph));
+    graphIndex = 0;
+  }
 }
 
 // Handle event changes of CC1101
@@ -532,7 +352,271 @@ void onSignalChange() {
 
   if (duration >= 100 && sampleIndex < MAX_SAMPLES && rssi >= settings.rssi) {
     samples[sampleIndex++] = duration;
+
+    graphSkipped++;
+
+    if(graphSkipped >= 10) {
+      itemsToGraph[graphIndex++] = rssi;
+      graphSkipped = 0;
+    }
+
+    graphUpdateNeeded = true;
   }
 
   lastTime = time;
+}
+
+// -- ESPASYNCWEBSERVER -- //
+// Event handler for web sockets (mainly used for Frequency Analyzer as quick data transmission)
+void onWsEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
+  switch(type) {
+    case WS_EVT_CONNECT:
+      break;
+
+    case WS_EVT_DISCONNECT:
+      ws.cleanupClients();
+
+      if (status.detect == "RUNNING") {
+        status.detect = "IDLE";
+        Serial.println(F("A websocket user has been disconnected from Frequency Analyzer."));
+      }
+
+      if (status.record == "RUNNING") {
+        stopRecording();
+
+        Serial.println(F("A websocket user has been disconnected from Recording."));
+      }
+      break;
+
+    case WS_EVT_ERROR:
+      Serial.printf("WebSocket error: %s\n", (char*)arg);
+      break;
+
+    case WS_EVT_DATA: {
+      if (len > 0) {
+        DynamicJsonDocument doc(MAX_SAMPLES + 1024);
+        deserializeJson(doc, data, len);
+        JsonObject dataObject = doc["data"]; // Extract the data provided
+
+        if (doc["url"] == "/analyzer") {
+          if (dataObject.containsKey("rssi")) {
+            settings.detect_rssi = dataObject["rssi"].as<int>();
+            Serial.println(F("Updated detect_rssi to "));
+            Serial.print(String(settings.detect_rssi));
+          }
+        }
+
+        if (doc["url"] == "/record") {
+          if (dataObject.containsKey("active")) {
+            if (dataObject["active"] == true) {
+              Serial.println(F("Recording has been successfully started with user settings."));
+              startRecording();
+            } else { 
+              stopRecording();
+              Serial.print(F("Found "));
+              Serial.print(String(sampleIndex));
+              Serial.print(F(" RAW samples, smoothing needed."));
+              delay(100);
+              smoothenSamples();
+              Serial.println(F("Recording has been successfully finished and samples have been smoothened."));
+
+              String prepend = "";
+              String presetName = settings.preset;
+              int freq_format = settings.frequency;
+              presetName.replace("AM270", "FuriHalSubGhzPresetOok270Async");
+              presetName.replace("AM650", "FuriHalSubGhzPresetOok650Async");
+              presetName.replace("FM238", "FuriHalSubGhzPreset2FSKDev238Async");
+              presetName.replace("FM476", "FuriHalSubGhzPreset2FSKDev238Async");
+
+              String result = "Filetype: Flipper SubGhz RAW File\nVersion: 1\n# Created with BKFZ SubGHz\nFrequency: " + String(freq_format) + "\nPreset: " + presetName + "\nProtocol: RAW\nRAW_Data: ";
+
+              if (samples[0] < 0) {
+                for (int i = 0; i < sampleIndex - 1; ++i) {
+                  samples[i] = samples[i + 1];
+                }
+                sampleIndex--;
+              }
+
+              for (int i = 0; i < sampleIndex; ++i) {
+                String valueToAdd = prepend + String(samples[i]);
+                result += valueToAdd;
+                prepend = " ";
+                if ((i + 1) % 512 == 0) {
+                  result += "\nRAW_Data: ";
+                  prepend = "";
+                }
+              }
+
+              DynamicJsonDocument responseDoc(MAX_SAMPLES + 1024);
+              responseDoc["url"] = "/record";
+              responseDoc["data"]["success"] = true;
+              responseDoc["data"]["samples"] = result;
+
+              String jsonString;
+              serializeJson(responseDoc, jsonString);
+              ws.textAll(jsonString);
+              jsonString.clear(); // clean up json string
+              flushSamples(); // flush the samples array once data was transmitted
+            }
+          }
+        }
+      }
+      break;
+    }
+    
+    default:
+      break;
+  }
+}
+
+void setup() {
+  Serial.begin(9600);
+  delay(500);
+  while (!Serial) { ; }
+
+  // -- Web Server Setup -- //
+   /* This is the regular configuration, however you can use the already-existing network for testing purposes */
+  WiFi.softAP(ssid, password);
+  IPAddress IP = WiFi.softAPIP();
+
+  preferences.begin("settings", false);
+  settings.preset = preferences.getString("preset", settings.preset);
+  settings.frequency = preferences.getInt("frequency", settings.frequency);
+  settings.rssi = preferences.getInt("rssi", settings.rssi);
+  settings.detect_rssi = preferences.getInt("detect_rssi", settings.detect_rssi);
+  preferences.end();
+
+  if (!SPIFFS.begin(true)) {
+    Serial.println(F("An error has occurred while mounting SPIFFS. Please check if SPIFFS is properly installed."));
+    return;
+  }
+
+  // -- All Pages -- //
+  server.serveStatic("/assets", SPIFFS, "/assets");
+
+  server.on("/", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    File file = SPIFFS.open("/home.html", "r");
+    String content = file.readString();
+
+    file.close();
+    request->send(200, "text/html", content);
+  });
+
+  server.on("/record", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    File file = SPIFFS.open("/record.html", "r");
+    String content = file.readString();
+
+    file.close();
+    request->send(200, "text/html", injectSettings() + content);
+  });
+
+  server.on("/play", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    File file = SPIFFS.open("/play.html", "r");
+    String content = file.readString();
+
+    file.close();
+    request->send(200, "text/html", content);
+  });
+
+  server.on("/analyzer", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    File file = SPIFFS.open("/frequency_analyzer.html", "r");
+    String content = file.readString();
+
+    file.close();
+    if(status.detect == "IDLE") {
+      status.detect = "QUEUED";
+    }
+
+    request->send(200, "text/html", injectSettings() + content);
+  });
+
+  server.on("/settings", HTTP_GET, [] (AsyncWebServerRequest *request) {
+    File file = SPIFFS.open("/settings.html", "r");
+    String content = file.readString();
+
+    file.close();
+    request->send(200, "text/html", injectSettings() + content);
+  });
+
+  // -- API Requests -- //
+
+  server.on("/api/play", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (request->hasParam("samples", true) && request->hasParam("frequency", true) && request->hasParam("length", true) && request->hasParam("preset", true)) {
+      flushSamples(); // free up memory
+      request->send(200, "text/plain", "Recording has been placed in queue.");
+
+      // Store old settings to revert when done
+      String old_preset = settings.preset;
+      int old_freq = settings.frequency;
+
+      String samplesParam = request->getParam("samples", true)->value();
+      String frequencyParam = request->getParam("frequency", true)->value();
+      String lengthParam = request->getParam("length", true)->value();
+      String presetParam = request->getParam("preset", true)->value();
+      int reqLength = lengthParam.toInt();
+      int reqSamples[reqLength];// error: basically if they record something large and then try this, the samplesParam is empty (maybe memory overflow)
+
+      // Reconstruct samples array from response
+      DynamicJsonDocument doc(MAX_SAMPLES + 1024);
+      deserializeJson(doc, samplesParam);
+      JsonArray array = doc.as<JsonArray>();
+
+      for (int i = 0; i < reqLength; i++) {
+        reqSamples[i] = array[i].as<int>();
+      }
+
+      // Update settings to new data
+      settings.preset = presetParam;
+      settings.frequency = frequencyParam.toInt();
+      Serial.println(F("Now playing file requested by user, successfully updated to file settings."));
+
+      playSignal(reqSamples, reqLength);
+
+      Serial.println(F("Successfully played file requested, reverting back to old settings."));
+      // Revert settings back to original
+      settings.preset = old_preset;
+      settings.frequency = old_freq;
+    } else {
+      request->send(400, "text/plain", "The required parameters were not provided.");
+    }
+  });
+
+  server.on("/api/settings", HTTP_POST, [](AsyncWebServerRequest *request) {
+    if (request->hasParam("preset", true) && request->hasParam("frequency", true) && request->hasParam("rssi", true)) {
+      String frequencyParam = request->getParam("frequency", true)->value();
+      String rssiParam = request->getParam("rssi", true)->value();
+      String preset = request->getParam("preset", true)->value();
+      int frequency = frequencyParam.toInt();
+      int rssi = rssiParam.toInt();
+
+      settings.preset = preset;
+      settings.frequency = frequency;
+      settings.rssi = rssi;
+      saveSettings(); // Save settings in non-volatile storage
+
+      request->redirect("/settings?success=true");
+    } else {
+      request->redirect("/settings?success=false");
+    }
+  });
+
+  ws.onEvent(onWsEvent);
+  server.addHandler(&ws);
+  server.begin();
+
+  setupCC1101(false);
+  Serial.println(F("The CC1101 is ready with an IP address of "));
+  Serial.println(IP);
+}
+
+void loop() {
+  if(status.detect == "QUEUED") {
+    frequencyAnalyzer();
+  }
+
+  if(graphUpdateNeeded == true) {
+    graphUpdateNeeded = false;
+
+    checkGraph();
+  }
 }

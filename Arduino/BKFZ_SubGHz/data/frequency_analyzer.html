@@ -76,50 +76,37 @@
 
 		<textarea id="history" disabled style="color: grey;">No frequency history.</textarea>
 	</center>
+	<script src="/assets/websockets.js" type="text/javascript"></script>
     <script>
 		$(document).ready(function () {
-			var websocket = new WebSocket(`ws://${window.location.host}/ws`);
-			
-			websocket.onmessage = function(event) {
-				try {
-					var data = JSON.parse(event.data);
-					
-					if (data.type === "detect") {
-						var freq = data.data.freq;
-						var rssi = data.data.rssi;
-						
-						if(Number(rssi) < Number(window.settings.detect_rssi)) return; // Updating settings may take a few seconds because of the WebSocket latency, therefore let's double-check for RSSI here.
-						
-						$('.main .frequency').text((freq / 1000000).toFixed(2) + ' MHz');
-						$('.main .status').text(rssi + ' dBm (RSSI)');
-												
-						if ($("#history").css("color") === "rgb(128, 128, 128)") { // No history yet, remove placeholder
-							$("#history").css("color", "white");
-							$("#history").val("");
-						}
-						
-						$("#history").val(`Frequency : ${(freq / 1000000).toFixed(2) + ' MHz'} | RSSI: ${rssi} dBm\n` + $("#history").val());
-					}
-				} catch (error) {
-					console.error(error);
-					alert("A critical error has occurred when receiving frequency data. Please check the console for more details.");
-				}
-			};
-			
-			websocket.onerror = function(error) {
-				alert("An error occurred when receiving data from the WebSocket. Please check your connection and try again.");
-			};
-			
 			$("#rssi").on('change', function() {
-				websocket.send(JSON.stringify({ type: 'detect', data: { rssi: Number($(this).val()) } }));
+				sendMessage({ 'rssi': Number($(this).val()) });
 				
 				window.settings.detect_rssi = Number($(this).val());
 				updateSettings();
 			});
-			
-			$(window).on('beforeunload', function() {
-				websocket.close(); // close the websocket once done :)
-			});
+
+			window.handleWs = function(data) {
+				try {				
+					var freq = data.freq;
+					var rssi = data.rssi;
+					
+					if(Number(rssi) < Number(window.settings.detect_rssi)) return; // Updating settings may take a few seconds because of the WebSocket latency, therefore let's double-check for RSSI here.
+					
+					$('.main .frequency').text((freq / 1000000).toFixed(2) + ' MHz');
+					$('.main .status').text(rssi + ' dBm (RSSI)');
+					
+					if ($("#history").css("color") === "rgb(128, 128, 128)") { // No history yet, remove placeholder
+						$("#history").css("color", "white");
+						$("#history").val("");
+					}
+					
+					$("#history").val(`Frequency : ${(freq / 1000000).toFixed(2) + ' MHz'} | RSSI: ${rssi} dBm\n` + $("#history").val());
+				} catch (error) {
+					console.error(error);
+					alert("A critical error has occurred when receiving frequency data. Please check the console for more details.");
+				}
+			}
 			
 			function updateSettings() {
 				$(".status.settings").text(`Settings: ${window.settings.preset} | ${window.settings.detect_rssi} RSSI Threshold`); // window.settings is injected server-side

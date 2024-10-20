@@ -34,11 +34,27 @@
 
     .items .item .btn {
         background: #28a745 !important;
+    }
+
+    .items .item .btn, .items .item .loader {
+        margin: 0px;
         margin-top: 20px;
     }
 
     .items .item .type, .before .status {
         color: lightgrey;
+    }
+
+    .items .item .btnContainer {
+        margin: 10px auto;
+        margin-top: 20px;
+        width: auto;
+        height: 60px;
+    }
+
+    .items .item .btnContainer .loader {
+        width: 60px;
+        height: 60px;
     }
 	</style>
 </head>
@@ -57,6 +73,8 @@
         <div class="items"></div>
 	</center>
     <script>
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+
         $(document).ready(function () {
             window.files = {};
             
@@ -100,7 +118,11 @@
                         <div class="item" name="${file.name}">
                             <b class="title">${file.name.split(".")[0]}</b><br>
                             <b class="type">${isFlipper ? 'Flipper' : 'Native'} SubGhz RAW File</b><br>
-                            <button class="btn" onclick="play(this.parentElement)">Play</button>
+
+                            <div class="btnContainer"> <!-- using container to prevent div resize from loader -->
+                                <button style="display: block;" class="btn" onclick="play(this.parentElement.parentElement)">Play</button>
+                                <span class="loader" style="display: none;"></span>
+                            </div>
                         </div>
                         `);
                     }
@@ -143,67 +165,81 @@
                     preset: preset
                 };
             }
-            
-            window.play = async function(fileElement) {
-                const fileText = window.files[$(fileElement).attr("name")];
-                const data = convertFile(fileText);
+
+            async function calculatePercentage(fileElement, data, oldType) {
+                var remaining = 0;
+                var total = 0;
                 
-                const form = $('<form></form>', {
-                    method: 'POST',
-                    action: '/api/play'
+                // calculate time in ms
+                data.samples.forEach((num) => {
+                    total += Math.abs(num) / 1000;
                 });
                 
-                $('<input>', {
-                    type: 'hidden',
-                    name: 'samples',
-                    value: JSON.stringify(data.samples)
-                }).appendTo(form);
+                while (remaining < total) {
+                    remaining += 10;
+                    
+                    $(fileElement).find('.type').text('Transmitting... ' + ((remaining / total) * 100).toFixed(0) + '%');
+                    await sleep(10);
+                }
                 
-                $('<input>', {
-                    type: 'hidden',
-                    name: 'frequency',
-                    value: data.frequency
-                }).appendTo(form);
+                $(fileElement).find('.type').text('Transmitting... 100%!');
+                await sleep(1000);
+                $(fileElement).find('.type').text(oldType);
+                $(fileElement).find('.loader').hide();
+                $(fileElement).find('.btn').css('display', 'block').show();
+            }
+
+            function toggleButtons(method) {
+                const elements = document.querySelectorAll(".items .item .btn");
+
+                elements.forEach(element => {
+                    if(method == 'on') {
+                        element.removeAttribute('disabled');
+                    } else if(method == 'off') {
+                        element.setAttribute('disabled', '');
+                    }
+                });
+            }
+            
+            window.play = async function(fileElement) {
+                var oldType = $(fileElement).find('.type').text();
+
+                $(fileElement).find('.btn').hide();
+                $(fileElement).find('.loader').css('display', 'block').show();
+                $(fileElement).find('.type').text('Transmission queued...');
+
+                const fileText = window.files[$(fileElement).attr("name")];
+                const data = convertFile(fileText);
+
+                toggleButtons('off'); // disable other buttons until confirmation from server
                 
-                $('<input>', {
-                    type: 'hidden',
-                    name: 'length',
-                    value: data.samples.length
-                }).appendTo(form);
-                
-                $('<input>', {
-                    type: 'hidden',
-                    name: 'preset',
-                    value: data.preset
-                }).appendTo(form);
-                
-                $('body').append(form);
-                form.submit();
+                $.ajax({
+                    url: '/api/play',
+                    type: 'POST',
+                    data: $.param({
+                        samples: JSON.stringify(data.samples),
+                        frequency: data.frequency,
+                        length: data.samples.length,
+                        preset: data.preset
+                    }),
+                    contentType: 'application/x-www-form-urlencoded',
+                    success: async function(response) {
+                        // indicating that the recording has started
+                        toggleButtons('on'); // allow user to add to queue
+                        await calculatePercentage(fileElement, data, oldType);
+                    },
+                    error: function(error) {
+                        alert("A critical error has occurred when transmitting data. Please check the console for more details.");
+                        console.error(error);
+
+                        window.location.reload();
+                    }
+                });   
             };
 
             $("#openDirectory").click(function () {
                 $("#directory").click();
             });
-            
-
-            const url = new URL(window.location.href);
-			const success = url.searchParams.get('success');
-
-            if(success) {
-                if(success === "true") {
-                    $('.alert').addClass('alert-success').text('Your signal has been transmitted successfully.');
-                } else if(success === "false") {
-                    $('.alert').addClass('alert-danger').text('Your signal could not be transmitted (invalid file).');
-                }
-                
-                $('.alert').show();
-                url.searchParams.delete('success');
-                history.replaceState(null, '', url.toString());
-                
-                setTimeout(function() {
-                  $('.alert').hide();
-                }, 3000);
-            }
         });
     </script>
 </body>
