@@ -25,6 +25,8 @@ If you're looking to build a fully-fledged BKFZ SubGHz device, you'll want to pu
 - [Latching Buttons (10pk)](https://s.click.aliexpress.com/e/_DkSsHEL): **$1.13** on AliExpress 
 - [JST 2mm Connectors (10pk)](https://s.click.aliexpress.com/e/_DCTEiy7): **$1.01** on AliExpress 
 - [Custom PCB Print](https://github.com/BrianWalczak/BKFZ-SubGHz/tree/main/KiCad_PCB#bkfz-subghz---kicad-pcb): **~$3.50** on JLCPCB (w/ shipping)
+<br>
+<img src="https://github.com/user-attachments/assets/beffe9a9-9035-4349-9055-57c599767048" alt="Assembly Parts" width="400"/>
 
 The custom PCB design, as found [here](https://github.com/BrianWalczak/BKFZ-SubGHz/tree/main/KiCad_PCB#bkfz-subghz---kicad-pcb), is specifically designed to work with the 433 MHz module(s) linked above.
 
